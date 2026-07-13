@@ -52,6 +52,10 @@ from aes_engine import AESEngine
 app = Flask(__name__)
 CORS(app)
 
+# Global state for AES
+aes_engine = None
+session_key = None
+
 @app.route('/api/pki/init', methods=['GET'])
 def init_pki():
     """
@@ -131,164 +135,163 @@ def tls_handshake():
     # Import your AES engine (add at the top of the file with other imports)
     # from aes_engine import AESEngine
 
-    # Global state for AES
-    aes_engine = None
-    session_key = None
-
 @app.route('/api/tls/send-message', methods=['POST'])
 def send_message():
-    """
-    YOUR ENDPOINT: Send encrypted or plaintext message
-    Uses AES-128 CBC for bulk data encryption
-    """
-    global aes_engine
+        """
+        YOUR ENDPOINT: Send encrypted or plaintext message
+        Uses AES-128 CBC for bulk data encryption
+        """
+        global aes_engine
 
-    try:
-        data = request.json
-        if not data:
+        try:
+            data = request.json
+            if not data:
+                return jsonify({
+                    "status": "error",
+                    "message": "No data provided"
+                }), 400
+
+            mode = data.get('mode', 'plain')
+            message = data.get('message', '')
+
+            if mode == 'encrypted':
+                # Check if AES engine is initialized
+                if not aes_engine:
+                    return jsonify({
+                        "status": "error",
+                        "message": "No session key established. Call /api/tls/handshake first.",
+                        "hint": "Call /api/tls/handshake first"
+                    }), 400
+
+                # YOUR AES ENGINE: Encrypt the message
+                encrypted_data = aes_engine.encrypt(message)
+
+                return jsonify({
+                    "status": "success",
+                    "message": "Message encrypted with AES-128-CBC",
+                    "data": {
+                        'mode': 'encrypted',
+                        'ciphertext': encrypted_data['ciphertext'],
+                        'iv': encrypted_data['iv'],
+                        'hmac_signature': encrypted_data['hmac_signature'],
+                        'original_length': len(message),
+                        'encrypted_length': len(encrypted_data['ciphertext']),
+                        'algorithm': 'AES-128-CBC'
+                    }
+                }), 200
+            else:
+                # Plaintext mode (HTTP)
+                return jsonify({
+                    "status": "success",
+                    "message": "Plaintext message sent (no encryption)",
+                    "data": {
+                        'mode': 'plain',
+                        'content': message,
+                        'length': len(message)
+                    }
+                }), 200
+
+        except Exception as e:
             return jsonify({
                 "status": "error",
-                "message": "No data provided"
-            }), 400
+                "message": f"Failed to send message: {str(e)}"
+            }), 500
 
-        mode = data.get('mode', 'plain')
-        message = data.get('message', '')
+@app.route('/api/tls/decrypt', methods=['POST'])
+def decrypt_message():
+        """
+        YOUR ENDPOINT: Decrypt a message
+        Uses AES-128 CBC with the established session key
+        """
+        global aes_engine
 
-        if mode == 'encrypted':
+        try:
+            data = request.json
+            if not data:
+                return jsonify({
+                    "status": "error",
+                    "message": "No data provided"
+                }), 400
+
             # Check if AES engine is initialized
             if not aes_engine:
                 return jsonify({
                     "status": "error",
-                    "message": "No session key established. Call /api/tls/handshake first.",
-                    "hint": "Call /api/tls/handshake first"
+                    "message": "No session key established. Call /api/tls/handshake first."
                 }), 400
 
-            # YOUR AES ENGINE: Encrypt the message
-            encrypted_data = aes_engine.encrypt(message)
+            ciphertext = data.get('ciphertext')
+            iv = data.get('iv')
+            hmac_signature = data.get('hmac_signature')
+
+            
+            if not ciphertext or not iv:
+                return jsonify({
+                    "status": "error",
+                    "message": "Missing ciphertext or IV"
+                }), 400
+
+            # YOUR AES ENGINE: Decrypt the message
+            plaintext = aes_engine.decrypt(ciphertext, iv, hmac_signature)
 
             return jsonify({
                 "status": "success",
-                "message": "Message encrypted with AES-128-CBC",
+                "message": "Message decrypted successfully",
                 "data": {
-                    'mode': 'encrypted',
-                    'ciphertext': encrypted_data['ciphertext'],
-                    'iv': encrypted_data['iv'],
-                    'original_length': len(message),
-                    'encrypted_length': len(encrypted_data['ciphertext']),
+                    'plaintext': plaintext,
+                    'length': len(plaintext),
                     'algorithm': 'AES-128-CBC'
                 }
             }), 200
-        else:
-            # Plaintext mode (HTTP)
-            return jsonify({
-                "status": "success",
-                "message": "Plaintext message sent (no encryption)",
-                "data": {
-                    'mode': 'plain',
-                    'content': message,
-                    'length': len(message)
-                }
-            }), 200
 
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"Failed to send message: {str(e)}"
-        }), 500
-
-@app.route('/api/tls/decrypt', methods=['POST'])
-def decrypt_message():
-    """
-    YOUR ENDPOINT: Decrypt a message
-    Uses AES-128 CBC with the established session key
-    """
-    global aes_engine
-
-    try:
-        data = request.json
-        if not data:
+        except Exception as e:
             return jsonify({
                 "status": "error",
-                "message": "No data provided"
-            }), 400
+                "message": f"Decryption failed: {str(e)}"
+            }), 500
 
-        # Check if AES engine is initialized
+@app.route('/api/tls/session-status', methods=['GET'])
+def session_status():
+        """
+        YOUR ENDPOINT: Check if session key and AES engine are ready
+        """
+        global aes_engine
+
+        return jsonify({
+            "status": "success",
+            "message": "Session status retrieved",
+            "data": {
+                'has_session_key': aes_engine is not None,
+                'session_active': aes_engine is not None,
+                'algorithm': 'AES-128-CBC' if aes_engine else None,
+                'session_key': session_key if session_key else None
+            }
+        }), 200
+
+@app.route('/api/tls/encryption-info', methods=['GET'])
+def encryption_info():
+        """
+        YOUR ENDPOINT: Get info about the AES encryption
+        """
+        global aes_engine
+
         if not aes_engine:
             return jsonify({
                 "status": "error",
                 "message": "No session key established. Call /api/tls/handshake first."
             }), 400
 
-        ciphertext = data.get('ciphertext')
-        iv = data.get('iv')
-
-        if not ciphertext or not iv:
-            return jsonify({
-                "status": "error",
-                "message": "Missing ciphertext or IV"
-            }), 400
-
-        # YOUR AES ENGINE: Decrypt the message
-        plaintext = aes_engine.decrypt(ciphertext, iv)
-
         return jsonify({
             "status": "success",
-            "message": "Message decrypted successfully",
+            "message": "Encryption info retrieved",
             "data": {
-                'plaintext': plaintext,
-                'length': len(plaintext),
-                'algorithm': 'AES-128-CBC'
+                'algorithm': 'AES-128-CBC',
+                'key_length': '128 bits',
+                'block_size': '128 bits',
+                'padding': 'PKCS7',
+                'key_hex': aes_engine.get_key_hex()
             }
         }), 200
-
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"Decryption failed: {str(e)}"
-        }), 500
-
-@app.route('/api/tls/session-status', methods=['GET'])
-def session_status():
-    """
-    YOUR ENDPOINT: Check if session key and AES engine are ready
-    """
-    global aes_engine
-
-    return jsonify({
-        "status": "success",
-        "message": "Session status retrieved",
-        "data": {
-            'has_session_key': aes_engine is not None,
-            'session_active': aes_engine is not None,
-            'algorithm': 'AES-128-CBC' if aes_engine else None,
-            'session_key': session_key if session_key else None
-        }
-    }), 200
-
-@app.route('/api/tls/encryption-info', methods=['GET'])
-def encryption_info():
-    """
-    YOUR ENDPOINT: Get info about the AES encryption
-    """
-    global aes_engine
-
-    if not aes_engine:
-        return jsonify({
-            "status": "error",
-            "message": "No session key established. Call /api/tls/handshake first."
-        }), 400
-
-    return jsonify({
-        "status": "success",
-        "message": "Encryption info retrieved",
-        "data": {
-            'algorithm': 'AES-128-CBC',
-            'key_length': '128 bits',
-            'block_size': '128 bits',
-            'padding': 'PKCS7',
-            'key_hex': aes_engine.get_key_hex()
-        }
-    }), 200
 
 
 if __name__ == '__main__':
