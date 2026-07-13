@@ -11,6 +11,7 @@ from cryptography.hazmat.backends import default_backend
 import os
 import base64
 import hashlib
+import hmac
 
 
 class AESEngine:
@@ -82,26 +83,51 @@ class AESEngine:
         # Encrypt
         ciphertext = encryptor.update(padded_data) + encryptor.finalize()
 
+        # NEW: Generate HMAC Signature (Encrypt-then-MAC)
+        # We sign the combination of the IV and the ciphertext
+        mac_data = iv + ciphertext
+        signature = hmac.new(self.key, mac_data, hashlib.sha256).digest()
+
         # Return as Base64 for JSON transmission
         return {
             'ciphertext': base64.b64encode(ciphertext).decode('utf-8'),
-            'iv': base64.b64encode(iv).decode('utf-8')
+            'iv': base64.b64encode(iv).decode('utf-8'),
+            'hmac_signature': base64.b64encode(signature).decode('utf-8') # NEW
         }
 
-    def decrypt(self, ciphertext_b64, iv_b64):
+        # Return as Base64 for JSON transmission
+        #return {
+           # 'ciphertext': base64.b64encode(ciphertext).decode('utf-8'),
+            #'iv': base64.b64encode(iv).decode('utf-8')
+        #}
+
+    def decrypt(self, ciphertext_b64, iv_b64, hmac_b64=None):
+
         """
         Decrypt an AES-128 CBC encrypted message
 
         Args:
             ciphertext_b64: str - base64 encoded ciphertext
             iv_b64: str - base64 encoded initialization vector
+            hmac_b64: str - optional base64 encoded HMAC signature
 
         Returns:
             str: decrypted plaintext
         """
+
         # Decode from Base64
         ciphertext = base64.b64decode(ciphertext_b64)
         iv = base64.b64decode(iv_b64)
+
+        # Integrity Check Verification
+        if hmac_b64:
+            received_signature = base64.b64decode(hmac_b64)
+            mac_data = iv + ciphertext
+            expected_signature = hmac.new(self.key, mac_data, hashlib.sha256).digest()
+            
+        if not hmac.compare_digest(expected_signature, received_signature):
+            raise ValueError("INTEGRITY COMPROMISED: The payload was tampered with in transit!")
+            
 
         # Validate IV length
         if len(iv) != self.block_size:
@@ -133,7 +159,8 @@ class AESEngine:
         if isinstance(encrypted_data, dict):
             return self.decrypt(
                 encrypted_data['ciphertext'],
-                encrypted_data['iv']
+                encrypted_data['iv'],
+                encrypted_data.get('hmac_signature')
             )
         else:
             raise ValueError("Expected dict with 'ciphertext' and 'iv' keys")
@@ -184,11 +211,13 @@ def test_aes_engine():
 
         # Encrypt
         encrypted = aes.encrypt(message)
+
         print(f"   🔒 Ciphertext (first 30 chars): {encrypted['ciphertext'][:30]}...")
         print(f"   🔑 IV (first 20 chars): {encrypted['iv'][:20]}...")
+        print(f"   🛡️ HMAC Signature (first 30 chars): {encrypted['hmac_signature'][:30]}...")
 
         # Decrypt
-        decrypted = aes.decrypt(encrypted['ciphertext'], encrypted['iv'])
+        decrypted = aes.decrypt(encrypted['ciphertext'], encrypted['iv'], encrypted.get('hmac_signature'))
         print(f"   📄 Decrypted: {decrypted}")
 
         # Verify

@@ -135,8 +135,8 @@ def tls_handshake():
     aes_engine = None
     session_key = None
 
-    @app.route('/api/tls/send-message', methods=['POST'])
-    def send_message():
+@app.route('/api/tls/send-message', methods=['POST'])
+def send_message():
         """
         YOUR ENDPOINT: Send encrypted or plaintext message
         Uses AES-128 CBC for bulk data encryption
@@ -173,6 +173,7 @@ def tls_handshake():
                         'mode': 'encrypted',
                         'ciphertext': encrypted_data['ciphertext'],
                         'iv': encrypted_data['iv'],
+                        'hmac_signature': encrypted_data['hmac_signature'],
                         'original_length': len(message),
                         'encrypted_length': len(encrypted_data['ciphertext']),
                         'algorithm': 'AES-128-CBC'
@@ -196,8 +197,8 @@ def tls_handshake():
                 "message": f"Failed to send message: {str(e)}"
             }), 500
 
-    @app.route('/api/tls/decrypt', methods=['POST'])
-    def decrypt_message():
+@app.route('/api/tls/decrypt', methods=['POST'])
+def decrypt_message():
         """
         YOUR ENDPOINT: Decrypt a message
         Uses AES-128 CBC with the established session key
@@ -221,7 +222,9 @@ def tls_handshake():
 
             ciphertext = data.get('ciphertext')
             iv = data.get('iv')
+            hmac_signature = data.get('hmac_signature')
 
+            
             if not ciphertext or not iv:
                 return jsonify({
                     "status": "error",
@@ -229,7 +232,7 @@ def tls_handshake():
                 }), 400
 
             # YOUR AES ENGINE: Decrypt the message
-            plaintext = aes_engine.decrypt(ciphertext, iv)
+            plaintext = aes_engine.decrypt(ciphertext, iv, hmac_signature)
 
             return jsonify({
                 "status": "success",
@@ -247,8 +250,8 @@ def tls_handshake():
                 "message": f"Decryption failed: {str(e)}"
             }), 500
 
-    @app.route('/api/tls/session-status', methods=['GET'])
-    def session_status():
+@app.route('/api/tls/session-status', methods=['GET'])
+def session_status():
         """
         YOUR ENDPOINT: Check if session key and AES engine are ready
         """
@@ -265,8 +268,8 @@ def tls_handshake():
             }
         }), 200
 
-    @app.route('/api/tls/encryption-info', methods=['GET'])
-    def encryption_info():
+@app.route('/api/tls/encryption-info', methods=['GET'])
+def encryption_info():
         """
         YOUR ENDPOINT: Get info about the AES encryption
         """
